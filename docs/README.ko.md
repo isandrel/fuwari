@@ -14,13 +14,13 @@
 - [x] 사용자 정의 가능한 테마 색상 및 배너
 - [x] 반응형 디자인
 - [x] [Pagefind](https://pagefind.app/)를 이용한 검색 기능
-- [x] [Markdown 확장 기능](https://github.com/saicaca/fuwari?tab=readme-ov-file#-markdown-extended-syntax)
+- [x] [Markdown 확장 기능](https://github.com/isandrel/fuwari?tab=readme-ov-file#-markdown-extended-syntax)
 - [x] 목차
 - [x] RSS 피드
 
 ## 🚀 시작하기
 1. 블로그 저장소를 생성하세요:
-   - 이 템플릿에서 [새 저장소를 생성](https://github.com/saicaca/fuwari/generate)하거나 이 저장소를 포크하세요.
+   - 이 템플릿에서 [새 저장소를 생성](https://github.com/isandrel/fuwari/generate)하거나 이 저장소를 포크하세요.
    - 또는 다음 명령어 중 하나를 실행하세요:
    ```sh
        npm create fuwari@latest
@@ -74,7 +74,7 @@ Astro의 기본 [GitHub Flavored Markdown](https://github.github.com/gfm/) 지�
 | `pnpm astro --help`                 | Astro CLI를 사용하여 도움 받기                     |
 
 ## ✏️ 기여
-이 프로젝트에 기여하는 방법에 대한 자세한 내용은 [기여 가이드](https://github.com/saicaca/fuwari/blob/main/CONTRIBUTING.md)를 확인하세요.
+이 프로젝트에 기여하는 방법에 대한 자세한 내용은 [기여 가이드](https://github.com/isandrel/fuwari/blob/main/CONTRIBUTING.md)를 확인하세요.
 
 ## 📄 라이선스
 이 프로젝트는 MIT 라이선스에 따라 라이선스가 부여됩니다.

@@ -14,14 +14,14 @@ Một mẫu blog tĩnh được xây bằng [Astro](https://astro.build).
 - [x] Màu sắc và biểu ngữ có thể tùy chỉnh được
 - [x] Thiết kế nhanh nhạy
 - [x] Có chức năng tìm kiếm với [Pagefind](https://pagefind.app/)
-- [x] [Có các tính năng mở rộng của Markdown](https://github.com/saicaca/fuwari?tab=readme-ov-file#-markdown-extended-syntax)
+- [x] [Có các tính năng mở rộng của Markdown](https://github.com/isandrel/fuwari?tab=readme-ov-file#-markdown-extended-syntax)
 - [x] Có mục lục
 - [x] Nguồn cấp dữ liệu RSS
 
 ## 🚀 Bắt đầu
 
 1. Tạo kho lưu trữ blog của bạn:
-    - [Tạo một kho lưu trữ mới](https://github.com/saicaca/fuwari/generate) từ mẫu này hoặc fork kho lưu trữ này.
+    - [Tạo một kho lưu trữ mới](https://github.com/isandrel/fuwari/generate) từ mẫu này hoặc fork kho lưu trữ này.
     - Hoặc chạy một trong các lệnh sau:
        ```sh
        npm create fuwari@latest
@@ -77,7 +77,7 @@ Tất cả các lệnh được chạy từ thư mục gốc của dự án, t�
 
 ## ✏️ Đóng góp
 
-Xem [Hướng dẫn đóng góp](https://github.com/saicaca/fuwari/blob/main/CONTRIBUTING.md) để biết thêm chi tiết về cách đóng góp cho dự án này.
+Xem [Hướng dẫn đóng góp](https://github.com/isandrel/fuwari/blob/main/CONTRIBUTING.md) để biết thêm chi tiết về cách đóng góp cho dự án này.
 
 ## 📄 Giấy phép
 
