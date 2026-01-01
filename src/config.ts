@@ -1,4 +1,5 @@
 import type {
+	AnalyticsConfig,
 	ExpressiveCodeConfig,
 	LicenseConfig,
 	NavBarConfig,
@@ -87,4 +88,11 @@ export const expressiveCodeConfig: ExpressiveCodeConfig = {
 	// Note: Some styles (such as background color) are being overridden, see the astro.config.mjs file.
 	// Please select a dark theme, as this blog theme currently only supports dark background color
 	theme: "github-dark",
+};
+
+export const analyticsConfig: AnalyticsConfig = {
+	enabled: true,
+	provider: "umami",
+	websiteId: "e794ce26-fb5b-4b18-868f-d77b3b574c88",
+	scriptUrl: "https://cloud.umami.is/script.js",
 };
