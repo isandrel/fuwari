@@ -100,3 +100,10 @@ export type BlogPostData = {
 export type ExpressiveCodeConfig = {
 	theme: string;
 };
+
+export type AnalyticsConfig = {
+	enabled: boolean;
+	provider: "umami";
+	websiteId: string;
+	scriptUrl: string;
+};
