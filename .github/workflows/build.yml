@@ -49,3 +49,5 @@ jobs:
 
       - name: Run Astro Build
         run: bun run build
+        env:
+          UMAMI_SHARE_ID: ${{ secrets.UMAMI_SHARE_ID }}
