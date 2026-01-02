@@ -95,7 +95,7 @@ export const expressiveCodeConfig: ExpressiveCodeConfig = {
 export const umamiConfig: UmamiConfig = {
 	enable: true,
 	baseUrl: "https://umami.blog.isandrel.com/analytics/us", // Cloudflare Worker proxy + US region
-	shareId: import.meta.env.UMAMI_SHARE_ID || "", // Get this from Umami dashboard > Share URL
+	shareId: import.meta.env.PUBLIC_UMAMI_SHARE_ID || "", // Get this from Umami dashboard > Share URL
 	timezone: "America/Los_Angeles", // Your timezone
 	websiteId: "e794ce26-fb5b-4b18-868f-d77b3b574c88", // Your Umami website ID
 	scriptUrl: "https://umami.blog.isandrel.com/script.js", // Use proxy for script too

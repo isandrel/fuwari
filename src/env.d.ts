@@ -2,7 +2,7 @@
 /// <reference path="../.astro/types.d.ts" />
 
 interface ImportMetaEnv {
-	readonly UMAMI_SHARE_ID: string;
+	readonly PUBLIC_UMAMI_SHARE_ID: string;
 }
 
 interface ImportMeta {
