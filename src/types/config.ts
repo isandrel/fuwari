@@ -101,9 +101,11 @@ export type ExpressiveCodeConfig = {
 	theme: string;
 };
 
-export type AnalyticsConfig = {
-	enabled: boolean;
-	provider: "umami";
+export type UmamiConfig = {
+	enable: boolean;
+	baseUrl: string;
+	shareId: string;
+	timezone: string;
 	websiteId: string;
 	scriptUrl: string;
 };

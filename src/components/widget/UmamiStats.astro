@@ -1,0 +1,332 @@
+---
+import { Icon } from "astro-icon/components";
+import { umamiConfig } from "../../config";
+import WidgetLayout from "./WidgetLayout.astro";
+
+interface Props {
+	class?: string;
+	style?: string;
+}
+const { class: className, style } = Astro.props;
+
+// Pass config to client script
+const config = {
+	enable: umamiConfig.enable,
+	baseUrl: umamiConfig.baseUrl,
+	shareId: umamiConfig.shareId,
+	timezone: umamiConfig.timezone,
+};
+---
+
+<WidgetLayout name="Site Stats" id="umami-stats" class={className} {style}>
+	<div class="stats-grid" id="site-stats-container">
+		<!-- Page Views Card -->
+		<div class="stat-card group">
+			<div class="stat-card-inner">
+				<div class="stat-header">
+					<div class="stat-icon-wrapper">
+						<Icon name="material-symbols:visibility-outline" class="stat-icon" />
+					</div>
+					<div class="stat-label-wrapper">
+						<span class="stat-label">Page</span>
+						<span class="stat-label">Views</span>
+					</div>
+				</div>
+				<div class="stat-value-row">
+					<span id="total-pageviews" class="stat-number">--</span>
+					<span class="stat-unit">PV</span>
+				</div>
+			</div>
+			<!-- Decorative blur background -->
+			<div class="stat-glow"></div>
+		</div>
+
+		<!-- Visitors Card -->
+		<div class="stat-card group">
+			<div class="stat-card-inner">
+				<div class="stat-header">
+					<div class="stat-icon-wrapper">
+						<Icon name="material-symbols:person-outline" class="stat-icon" />
+					</div>
+					<div class="stat-label-wrapper">
+						<span class="stat-label">Unique</span>
+						<span class="stat-label">Visitors</span>
+					</div>
+				</div>
+				<div class="stat-value-row">
+					<span id="total-visitors" class="stat-number">--</span>
+					<span class="stat-unit">UV</span>
+				</div>
+			</div>
+			<!-- Decorative blur background -->
+			<div class="stat-glow"></div>
+		</div>
+	</div>
+</WidgetLayout>
+
+<script define:vars={{ config }}>
+	const UMAMI_CONFIG = config;
+
+	// Number rolling animation with easeOutQuart easing
+	function animateNumber(element, targetValue, duration = 1000) {
+		const startValue = 0;
+		const startTime = performance.now();
+
+		function easeOutQuart(t) {
+			return 1 - Math.pow(1 - t, 4);
+		}
+
+		function formatNumber(num) {
+			if (num >= 10000) return (num / 10000).toFixed(1) + "w";
+			if (num >= 1000) return (num / 1000).toFixed(1) + "k";
+			return num.toLocaleString();
+		}
+
+		function update(currentTime) {
+			const elapsed = currentTime - startTime;
+			const progress = Math.min(elapsed / duration, 1);
+			const easedProgress = easeOutQuart(progress);
+			const currentValue = Math.floor(
+				startValue + (targetValue - startValue) * easedProgress
+			);
+
+			element.textContent = formatNumber(currentValue);
+
+			if (progress < 1) {
+				requestAnimationFrame(update);
+			} else {
+				element.textContent = formatNumber(targetValue);
+				element.classList.add("stats-loaded");
+			}
+		}
+
+		requestAnimationFrame(update);
+	}
+
+	// Fetch share data to get websiteId and token
+	async function getShareData() {
+		const shareUrl = `${UMAMI_CONFIG.baseUrl}/api/share/${UMAMI_CONFIG.shareId}`;
+		const response = await fetch(shareUrl);
+		if (!response.ok) {
+			throw new Error(`Failed to get share data: ${response.status}`);
+		}
+		return await response.json();
+	}
+
+	async function fetchUmamiStats() {
+		if (!UMAMI_CONFIG.enable || !UMAMI_CONFIG.shareId) {
+			console.warn("Umami not configured");
+			return;
+		}
+
+		try {
+			// Step 1: Get share data (websiteId and token)
+			const shareData = await getShareData();
+			const { websiteId, token } = shareData;
+
+			// Step 2: Fetch stats using the token
+			const endAt = Date.now();
+			const startAt = 0; // All time
+			const timezone = encodeURIComponent(UMAMI_CONFIG.timezone);
+
+			const statsUrl = `${UMAMI_CONFIG.baseUrl}/api/websites/${websiteId}/stats?startAt=${startAt}&endAt=${endAt}&unit=hour&timezone=${timezone}`;
+
+			const response = await fetch(statsUrl, {
+				method: "GET",
+				headers: {
+					accept: "application/json",
+					"x-umami-share-token": token,
+				},
+			});
+
+			if (!response.ok) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+
+			const data = await response.json();
+			const pageviewsEl = document.getElementById("total-pageviews");
+			const visitorsEl = document.getElementById("total-visitors");
+
+			// Animate pageviews
+			if (pageviewsEl) {
+				animateNumber(pageviewsEl, data.pageviews || 0, 1200);
+			}
+			// Animate visitors with slight delay for stagger effect
+			if (visitorsEl) {
+				setTimeout(() => {
+					animateNumber(visitorsEl, data.visitors || 0, 1000);
+				}, 150);
+			}
+		} catch (error) {
+			console.error("Failed to fetch Umami stats:", error);
+			const pageviewsEl = document.getElementById("total-pageviews");
+			const visitorsEl = document.getElementById("total-visitors");
+			if (pageviewsEl) {
+				pageviewsEl.textContent = "--";
+				pageviewsEl.classList.add("stats-loaded");
+			}
+			if (visitorsEl) {
+				visitorsEl.textContent = "--";
+				visitorsEl.classList.add("stats-loaded");
+			}
+		}
+	}
+
+	document.addEventListener("DOMContentLoaded", fetchUmamiStats);
+
+	// Support Swup page transitions
+	if (window.swup) {
+		window.swup.hooks.on("page:view", fetchUmamiStats);
+	}
+</script>
+
+<style>
+	.stats-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+	}
+
+	.stat-card {
+		position: relative;
+		overflow: hidden;
+		padding: 0.75rem;
+		border-radius: 0.75rem;
+		background: var(--btn-regular-bg);
+		border: 1px solid var(--line-divider);
+		transition: all 0.3s ease-out;
+	}
+
+	.stat-card:hover {
+		border-color: var(--primary);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.stat-card-inner {
+		position: relative;
+		z-index: 10;
+	}
+
+	.stat-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.stat-icon-wrapper {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2rem;
+		height: 2rem;
+		border-radius: 0.5rem;
+		background: var(--card-bg);
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+		flex-shrink: 0;
+	}
+
+	.stat-icon {
+		font-size: 1rem;
+		color: var(--primary);
+	}
+
+	.stat-label-wrapper {
+		display: flex;
+		flex-direction: column;
+		line-height: 1.2;
+	}
+
+	.stat-label {
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: rgb(115 115 115);
+	}
+
+	:global(.dark) .stat-label {
+		color: rgb(163 163 163);
+	}
+
+	.stat-value-row {
+		display: flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: 0.375rem;
+	}
+
+	.stat-number {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--primary);
+		font-feature-settings: "tnum";
+		min-width: 3rem;
+		text-align: center;
+		display: inline-block;
+	}
+
+	.stat-unit {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: rgb(163 163 163);
+		opacity: 0.8;
+	}
+
+	/* Decorative blur background */
+	.stat-glow {
+		position: absolute;
+		right: -1rem;
+		top: -1rem;
+		width: 4rem;
+		height: 4rem;
+		background: var(--primary);
+		opacity: 0.05;
+		border-radius: 9999px;
+		filter: blur(2rem);
+		transition: transform 0.5s ease;
+	}
+
+	.stat-card:hover .stat-glow {
+		transform: scale(1.5);
+	}
+
+	/* Number loaded animation */
+	@keyframes countUp {
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.stats-loaded {
+		animation: countUp 0.4s ease-out forwards;
+	}
+
+	/* Shimmer skeleton loading effect */
+	@keyframes shimmer {
+		0% {
+			background-position: -200% 0;
+		}
+		100% {
+			background-position: 200% 0;
+		}
+	}
+
+	.stat-number:not(.stats-loaded) {
+		background: linear-gradient(
+			90deg,
+			var(--btn-content) 25%,
+			var(--card-bg) 50%,
+			var(--btn-content) 75%
+		);
+		background-size: 200% 100%;
+		animation: shimmer 1.5s infinite;
+		-webkit-background-clip: text;
+		background-clip: text;
+		color: transparent;
+		opacity: 0.5;
+	}
+</style>
