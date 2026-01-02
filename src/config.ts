@@ -1,10 +1,10 @@
 import type {
-	AnalyticsConfig,
 	ExpressiveCodeConfig,
 	LicenseConfig,
 	NavBarConfig,
 	ProfileConfig,
 	SiteConfig,
+	UmamiConfig,
 } from "./types/config";
 import { LinkPreset } from "./types/config";
 
@@ -90,9 +90,13 @@ export const expressiveCodeConfig: ExpressiveCodeConfig = {
 	theme: "github-dark",
 };
 
-export const analyticsConfig: AnalyticsConfig = {
-	enabled: true,
-	provider: "umami",
-	websiteId: "e794ce26-fb5b-4b18-868f-d77b3b574c88",
-	scriptUrl: "https://cloud.umami.is/script.js",
+// Umami Analytics Configuration
+// Proxied through Cloudflare Worker to avoid ad blocker issues
+export const umamiConfig: UmamiConfig = {
+	enable: true,
+	baseUrl: "https://umami.blog.isandrel.com/analytics/us", // Cloudflare Worker proxy + US region
+	shareId: import.meta.env.UMAMI_SHARE_ID || "", // Get this from Umami dashboard > Share URL
+	timezone: "America/Los_Angeles", // Your timezone
+	websiteId: "e794ce26-fb5b-4b18-868f-d77b3b574c88", // Your Umami website ID
+	scriptUrl: "https://umami.blog.isandrel.com/script.js", // Use proxy for script too
 };
