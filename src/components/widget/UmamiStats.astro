@@ -172,11 +172,13 @@ const config = {
 		}
 	}
 
-	document.addEventListener("DOMContentLoaded", fetchUmamiStats);
-
 	// Support Swup page transitions
+	// Note: Swup's `page:view` fires on initial load too, so we only use
+	// DOMContentLoaded as a fallback when Swup is not available
 	if (window.swup) {
 		window.swup.hooks.on("page:view", fetchUmamiStats);
+	} else {
+		document.addEventListener("DOMContentLoaded", fetchUmamiStats);
 	}
 </script>
 
