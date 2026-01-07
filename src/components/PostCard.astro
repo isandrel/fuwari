@@ -2,6 +2,7 @@
 import type { CollectionEntry } from "astro:content";
 import path from "node:path";
 import { Icon } from "astro-icon/components";
+import { umamiConfig } from "../config";
 import I18nKey from "../i18n/i18nKey";
 import { i18n } from "../i18n/translation";
 import { getDir } from "../utils/url-utils";
@@ -41,6 +42,14 @@ const hasCover = image !== undefined && image !== null && image !== "";
 const coverWidth = "28%";
 
 const { remarkPluginFrontmatter } = await entry.render();
+
+// Pass config to client
+const statsConfig = {
+	enable: umamiConfig.enable,
+	baseUrl: umamiConfig.baseUrl,
+	shareId: umamiConfig.shareId,
+	timezone: umamiConfig.timezone,
+};
 ---
 <div class:list={["card-base flex flex-col-reverse md:flex-col w-full rounded-[var(--radius-large)] overflow-hidden relative", className]} style={style}>
     <div class:list={["pl-6 md:pl-9 pr-6 md:pr-2 pt-6 md:pt-7 pb-6 relative", {"w-full md:w-[calc(100%_-_52px_-_12px)]": !hasCover, "w-full md:w-[calc(100%_-_var(--coverWidth)_-_12px)]": hasCover}]}>
@@ -64,14 +73,23 @@ const { remarkPluginFrontmatter } = await entry.render();
             { description || remarkPluginFrontmatter.excerpt }
         </div>
 
-        <!-- word count and read time  -->
-        <div class="text-sm text-black/30 dark:text-white/30 flex gap-4 transition">
-            <div>
-                {remarkPluginFrontmatter.words} {" " + i18n(remarkPluginFrontmatter.words === 1 ? I18nKey.wordCount : I18nKey.wordsCount)}
+        <!-- word count, read time and page views -->
+        <div class="text-sm text-black/60 dark:text-white/60 flex gap-2 transition items-center flex-wrap mt-2" data-post-slug={entry.slug}>
+            <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                <Icon name="material-symbols:notes-rounded" class="text-sm text-[var(--primary)]" />
+                <span>{remarkPluginFrontmatter.words} {i18n(remarkPluginFrontmatter.words === 1 ? I18nKey.wordCount : I18nKey.wordsCount)}</span>
             </div>
-            <div>|</div>
-            <div>
-                {remarkPluginFrontmatter.minutes} {" " + i18n(remarkPluginFrontmatter.minutes === 1 ? I18nKey.minuteCount : I18nKey.minutesCount)}
+            <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                <Icon name="material-symbols:schedule-outline-rounded" class="text-sm text-[var(--primary)]" />
+                <span>{remarkPluginFrontmatter.minutes} {i18n(remarkPluginFrontmatter.minutes === 1 ? I18nKey.minuteCount : I18nKey.minutesCount)}</span>
+            </div>
+            <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                <Icon name="material-symbols:visibility-outline-rounded" class="text-sm text-[var(--primary)]" />
+                <span class="post-pv" data-slug={entry.slug}>--</span>
+            </div>
+            <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                <Icon name="material-symbols:person-outline" class="text-sm text-[var(--primary)]" />
+                <span class="post-uv" data-slug={entry.slug}>--</span>
             </div>
         </div>
 
@@ -107,4 +125,152 @@ const { remarkPluginFrontmatter } = await entry.render();
 <div class="transition border-t-[1px] border-dashed mx-6 border-black/10 dark:border-white/[0.15] last:border-t-0 md:hidden"></div>
 
 <style define:vars={{coverWidth}}>
+  .post-pv, .post-uv {
+    font-variant-numeric: tabular-nums;
+  }
+  
+  @keyframes countUp {
+    from {
+      opacity: 0.5;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .stats-loaded {
+    animation: countUp 0.3s ease-out forwards;
+  }
 </style>
+
+<script define:vars={{ statsConfig }}>
+(function() {
+	const UMAMI_CONFIG = statsConfig;
+	
+	// Global caches
+	window.umamiPostStatsCache = window.umamiPostStatsCache || {};
+	window.umamiShareDataPromise = window.umamiShareDataPromise || null;
+	
+	// Get share data (cached)
+	async function getShareData() {
+		if (!window.umamiShareDataPromise) {
+			window.umamiShareDataPromise = fetch(`${UMAMI_CONFIG.baseUrl}/api/share/${UMAMI_CONFIG.shareId}`)
+				.then(res => {
+					if (!res.ok) throw new Error('Failed to get share data');
+					return res.json();
+				})
+				.catch(err => {
+					window.umamiShareDataPromise = null;
+					throw err;
+				});
+		}
+		return window.umamiShareDataPromise;
+	}
+	
+	// Prefetch share data immediately
+	if (UMAMI_CONFIG.enable && UMAMI_CONFIG.shareId) {
+		getShareData();
+	}
+	
+	// Fetch stats for a specific post
+	async function fetchPostStats(slug) {
+		if (!UMAMI_CONFIG.enable || !UMAMI_CONFIG.shareId) return null;
+		
+		if (window.umamiPostStatsCache[slug]) {
+			return window.umamiPostStatsCache[slug];
+		}
+		
+		try {
+			const { websiteId, token } = await getShareData();
+			const endAt = Date.now();
+			const pagePath = encodeURIComponent(`eq./posts/${slug}/`);
+			const timezone = encodeURIComponent(UMAMI_CONFIG.timezone);
+			
+			const statsUrl = `${UMAMI_CONFIG.baseUrl}/api/websites/${websiteId}/stats?startAt=0&endAt=${endAt}&unit=hour&timezone=${timezone}&path=${pagePath}`;
+			
+			const response = await fetch(statsUrl, {
+				headers: { 'x-umami-share-token': token }
+			});
+			
+			if (!response.ok) throw new Error('Failed to fetch stats');
+			
+			const data = await response.json();
+			const stats = { pageviews: data.pageviews || 0, visitors: data.visitors || 0 };
+			window.umamiPostStatsCache[slug] = stats;
+			return stats;
+		} catch (error) {
+			console.error('Error fetching stats for', slug, error);
+			return null;
+		}
+	}
+	
+	// Animate number with guard
+	function animateNumber(el, targetValue) {
+		if (el.dataset.animating === 'true' || el.dataset.animated === 'true') return;
+		el.dataset.animating = 'true';
+		
+		const duration = 400;
+		const startTime = performance.now();
+		
+		function update(currentTime) {
+			const elapsed = currentTime - startTime;
+			const progress = Math.min(elapsed / duration, 1);
+			const eased = 1 - Math.pow(1 - progress, 3);
+			el.textContent = Math.floor(targetValue * eased).toString();
+			
+			if (progress < 1) {
+				requestAnimationFrame(update);
+			} else {
+				el.textContent = targetValue.toString();
+				el.classList.add('stats-loaded');
+				el.dataset.animated = 'true';
+				delete el.dataset.animating;
+			}
+		}
+		requestAnimationFrame(update);
+	}
+	
+	// Update UI
+	async function updatePostStats(slug) {
+		const stats = await fetchPostStats(slug);
+		document.querySelectorAll(`.post-pv[data-slug="${slug}"]`).forEach(el => {
+			if (el.dataset.animated === 'true') { if (stats) el.textContent = stats.pageviews.toString(); return; }
+			if (stats && stats.pageviews > 0) { animateNumber(el, stats.pageviews); }
+			else { el.textContent = stats ? '0' : '-'; el.classList.add('stats-loaded'); el.dataset.animated = 'true'; }
+		});
+		document.querySelectorAll(`.post-uv[data-slug="${slug}"]`).forEach(el => {
+			if (el.dataset.animated === 'true') { if (stats) el.textContent = stats.visitors.toString(); return; }
+			if (stats && stats.visitors > 0) { animateNumber(el, stats.visitors); }
+			else { el.textContent = stats ? '0' : '-'; el.classList.add('stats-loaded'); el.dataset.animated = 'true'; }
+		});
+	}
+	
+	// Lazy load with IntersectionObserver
+	function initLazyStats() {
+		const observer = new IntersectionObserver((entries) => {
+			entries.forEach(entry => {
+				if (entry.isIntersecting) {
+					const slug = entry.target.dataset.postSlug;
+					if (slug) updatePostStats(slug);
+					observer.unobserve(entry.target);
+				}
+			});
+		}, { rootMargin: '50px', threshold: 0.1 });
+		
+		document.querySelectorAll('[data-post-slug]').forEach(el => {
+			if (!el.querySelector('.post-pv[data-animated="true"]')) observer.observe(el);
+		});
+	}
+	
+	// Support Swup
+	if (window.swup) {
+		window.swup.hooks.on("page:view", initLazyStats);
+		initLazyStats();
+	} else {
+		if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initLazyStats);
+		else initLazyStats();
+	}
+})();
+</script>

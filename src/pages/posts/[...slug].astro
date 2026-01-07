@@ -8,11 +8,19 @@ import MainGridLayout from "@layouts/MainGridLayout.astro";
 import { getSortedPosts } from "@utils/content-utils";
 import { getDir, getPostUrlBySlug } from "@utils/url-utils";
 import { Icon } from "astro-icon/components";
-import { licenseConfig } from "src/config";
+import { licenseConfig, umamiConfig } from "src/config";
 import ImageWrapper from "../../components/misc/ImageWrapper.astro";
 import PostMetadata from "../../components/PostMeta.astro";
 import { profileConfig, siteConfig } from "../../config";
 import { formatDateToYYYYMMDD } from "../../utils/date-utils";
+
+// Pass config to client
+const statsConfig = {
+	enable: umamiConfig.enable,
+	baseUrl: umamiConfig.baseUrl,
+	shareId: umamiConfig.shareId,
+	timezone: umamiConfig.timezone,
+};
 
 export async function getStaticPaths() {
 	const blogEntries = await getSortedPosts();
@@ -51,24 +59,6 @@ const jsonLd = {
         <div id="post-container" class:list={["card-base z-10 px-6 md:px-9 pt-6 pb-4 relative w-full ",
             {}
         ]}>
-            <!-- word count and reading time -->
-            <div class="flex flex-row text-black/30 dark:text-white/30 gap-5 mb-3 transition onload-animation">
-                <div class="flex flex-row items-center">
-                    <div class="transition h-6 w-6 rounded-md bg-black/5 dark:bg-white/10 text-black/50 dark:text-white/50 flex items-center justify-center mr-2">
-                        <Icon name="material-symbols:notes-rounded"></Icon>
-                    </div>
-                    <div class="text-sm">{remarkPluginFrontmatter.words} {" " + i18n(I18nKey.wordsCount)}</div>
-                </div>
-                <div class="flex flex-row items-center">
-                    <div class="transition h-6 w-6 rounded-md bg-black/5 dark:bg-white/10 text-black/50 dark:text-white/50 flex items-center justify-center mr-2">
-                        <Icon name="material-symbols:schedule-outline-rounded"></Icon>
-                    </div>
-                    <div class="text-sm">
-                        {remarkPluginFrontmatter.minutes} {" " + i18n(remarkPluginFrontmatter.minutes === 1 ? I18nKey.minuteCount : I18nKey.minutesCount)}
-                    </div>
-                </div>
-            </div>
-
             <!-- title -->
             <div class="relative onload-animation">
                 <div
@@ -86,14 +76,35 @@ const jsonLd = {
             <!-- metadata -->
             <div class="onload-animation">
                 <PostMetadata
-                        class="mb-5"
+                        class="mb-4"
                         published={entry.data.published}
                         updated={entry.data.updated}
                         tags={entry.data.tags}
                         category={entry.data.category}
                 ></PostMetadata>
-                {!entry.data.image && <div class="border-[var(--line-divider)] border-dashed border-b-[1px] mb-5"></div>}
             </div>
+
+            <!-- word count, read time and page views -->
+            <div class="text-sm text-black/60 dark:text-white/60 flex gap-2 transition items-center flex-wrap mb-4 onload-animation" data-post-slug={entry.slug}>
+                <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                    <Icon name="material-symbols:notes-rounded" class="text-sm text-[var(--primary)]" />
+                    <span>{remarkPluginFrontmatter.words} {i18n(I18nKey.wordsCount)}</span>
+                </div>
+                <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                    <Icon name="material-symbols:schedule-outline-rounded" class="text-sm text-[var(--primary)]" />
+                    <span>{remarkPluginFrontmatter.minutes} {i18n(remarkPluginFrontmatter.minutes === 1 ? I18nKey.minuteCount : I18nKey.minutesCount)}</span>
+                </div>
+                <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                    <Icon name="material-symbols:visibility-outline-rounded" class="text-sm text-[var(--primary)]" />
+                    <span class="post-pv" data-slug={entry.slug}>--</span>
+                </div>
+                <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[var(--btn-regular-bg)] border border-black/5 dark:border-white/10">
+                    <Icon name="material-symbols:person-outline" class="text-sm text-[var(--primary)]" />
+                    <span class="post-uv" data-slug={entry.slug}>--</span>
+                </div>
+            </div>
+            
+            {!entry.data.image && <div class="border-[var(--line-divider)] border-dashed border-b-[1px] mb-5"></div>}
 
             <!-- always show cover as long as it has one -->
 
@@ -134,3 +145,182 @@ const jsonLd = {
     </div>
 
 </MainGridLayout>
+
+<style>
+  .post-pv, .post-uv {
+    font-variant-numeric: tabular-nums;
+  }
+  
+  @keyframes countUp {
+    from {
+      opacity: 0.5;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .stats-loaded {
+    animation: countUp 0.3s ease-out forwards;
+  }
+</style>
+
+<script define:vars={{ statsConfig }}>
+(function() {
+	const UMAMI_CONFIG = statsConfig;
+	
+	// Global caches
+	window.umamiPostStatsCache = window.umamiPostStatsCache || {};
+	window.umamiPostStatsAnimated = window.umamiPostStatsAnimated || {}; // Track animated slugs
+	window.umamiShareDataPromise = window.umamiShareDataPromise || null;
+	
+	// Get share data (cached)
+	async function getShareData() {
+		if (!window.umamiShareDataPromise) {
+			window.umamiShareDataPromise = fetch(`${UMAMI_CONFIG.baseUrl}/api/share/${UMAMI_CONFIG.shareId}`)
+				.then(res => {
+					if (!res.ok) throw new Error('Failed to get share data');
+					return res.json();
+				})
+				.catch(err => {
+					window.umamiShareDataPromise = null;
+					throw err;
+				});
+		}
+		return window.umamiShareDataPromise;
+	}
+	
+	// Fetch stats for a specific post
+	async function fetchPostStats(slug) {
+		if (!UMAMI_CONFIG.enable || !UMAMI_CONFIG.shareId) return null;
+		
+		// Check cache
+		if (window.umamiPostStatsCache[slug]) {
+			return window.umamiPostStatsCache[slug];
+		}
+		
+		try {
+			const { websiteId, token } = await getShareData();
+			const endAt = Date.now();
+			const pagePath = encodeURIComponent(`eq./posts/${slug}/`);
+			const timezone = encodeURIComponent(UMAMI_CONFIG.timezone);
+			
+			const statsUrl = `${UMAMI_CONFIG.baseUrl}/api/websites/${websiteId}/stats?startAt=0&endAt=${endAt}&unit=hour&timezone=${timezone}&path=${pagePath}`;
+			
+			const response = await fetch(statsUrl, {
+				headers: { 'x-umami-share-token': token }
+			});
+			
+			if (!response.ok) throw new Error('Failed to fetch stats');
+			
+			const data = await response.json();
+			const stats = {
+				pageviews: data.pageviews || 0,
+				visitors: data.visitors || 0
+			};
+			
+			// Cache the result
+			window.umamiPostStatsCache[slug] = stats;
+			return stats;
+		} catch (error) {
+			console.error('Error fetching stats for', slug, error);
+			return null;
+		}
+	}
+	
+	// Fast number rolling animation (400ms) with guard
+	function animateNumber(element, targetValue) {
+		// Skip if already animating or animated
+		if (element.dataset.animating === 'true' || element.dataset.animated === 'true') {
+			return;
+		}
+		element.dataset.animating = 'true';
+		
+		const duration = 400;
+		const startTime = performance.now();
+		
+		function update(currentTime) {
+			const elapsed = currentTime - startTime;
+			const progress = Math.min(elapsed / duration, 1);
+			// easeOutCubic for smooth deceleration
+			const eased = 1 - Math.pow(1 - progress, 3);
+			const currentValue = Math.floor(targetValue * eased);
+			
+			element.textContent = currentValue.toString();
+			
+			if (progress < 1) {
+				requestAnimationFrame(update);
+			} else {
+				element.textContent = targetValue.toString();
+				element.classList.add('stats-loaded');
+				element.dataset.animated = 'true';
+				delete element.dataset.animating;
+			}
+		}
+		
+		requestAnimationFrame(update);
+	}
+	
+	// Update UI for a post with animation
+	async function updatePostStats(slug) {
+		const stats = await fetchPostStats(slug);
+		const pvElements = document.querySelectorAll(`.post-pv[data-slug="${slug}"]`);
+		const uvElements = document.querySelectorAll(`.post-uv[data-slug="${slug}"]`);
+		
+		pvElements.forEach(el => {
+			if (el.dataset.animated === 'true') {
+				if (stats) el.textContent = stats.pageviews.toString();
+				return;
+			}
+			if (stats && stats.pageviews > 0) {
+				animateNumber(el, stats.pageviews);
+			} else {
+				el.textContent = stats ? '0' : '-';
+				el.classList.add('stats-loaded');
+				el.dataset.animated = 'true';
+			}
+		});
+		uvElements.forEach(el => {
+			if (el.dataset.animated === 'true') {
+				if (stats) el.textContent = stats.visitors.toString();
+				return;
+			}
+			if (stats && stats.visitors > 0) {
+				animateNumber(el, stats.visitors);
+			} else {
+				el.textContent = stats ? '0' : '-';
+				el.classList.add('stats-loaded');
+				el.dataset.animated = 'true';
+			}
+		});
+	}
+	
+	// Initialize stats on page load
+	function initStats() {
+		const statsRow = document.querySelector('[data-post-slug]');
+		if (statsRow) {
+			// Skip if already animated
+			if (statsRow.querySelector('.post-pv[data-animated="true"]')) {
+				return;
+			}
+			const slug = statsRow.dataset.postSlug;
+			if (slug) updatePostStats(slug);
+		}
+	}
+	
+	// Support Swup page transitions - use same pattern as site stats
+	if (window.swup) {
+		window.swup.hooks.on("page:view", initStats);
+		// Also run immediately for initial load
+		initStats();
+	} else {
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', initStats);
+		} else {
+			initStats();
+		}
+	}
+})();
+</script>
