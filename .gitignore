@@ -35,3 +35,8 @@ yarn.lock
 
 # repomix output
 repomix-output.xml
+
+# local agent/session artifacts
+.playwright-cli/
+.remember/
+docs/superpowers/
