@@ -26,8 +26,6 @@ jobs:
 
       - name: Build site
         run: bun run build
-        env:
-          UMAMI_SHARE_ID: ${{ secrets.UMAMI_SHARE_ID }}
 
       - name: Install Wrangler
         run: bun add --global wrangler

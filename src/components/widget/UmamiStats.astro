@@ -1,6 +1,5 @@
 ---
 import { Icon } from "astro-icon/components";
-import { umamiConfig } from "../../config";
 import WidgetLayout from "./WidgetLayout.astro";
 
 interface Props {
@@ -8,14 +7,6 @@ interface Props {
 	style?: string;
 }
 const { class: className, style } = Astro.props;
-
-// Pass config to client script
-const config = {
-	enable: umamiConfig.enable,
-	baseUrl: umamiConfig.baseUrl,
-	shareId: umamiConfig.shareId,
-	timezone: umamiConfig.timezone,
-};
 ---
 
 <WidgetLayout name="Site Stats" id="site-analytics" class={className} {style}>
@@ -63,124 +54,6 @@ const config = {
 		</div>
 	</div>
 </WidgetLayout>
-
-<script define:vars={{ config }}>
-	const UMAMI_CONFIG = config;
-
-	// Number rolling animation with easeOutQuart easing
-	function animateNumber(element, targetValue, duration = 1000) {
-		const startValue = 0;
-		const startTime = performance.now();
-
-		function easeOutQuart(t) {
-			return 1 - Math.pow(1 - t, 4);
-		}
-
-		function formatNumber(num) {
-			if (num >= 10000) return (num / 10000).toFixed(1) + "w";
-			if (num >= 1000) return (num / 1000).toFixed(1) + "k";
-			return num.toLocaleString();
-		}
-
-		function update(currentTime) {
-			const elapsed = currentTime - startTime;
-			const progress = Math.min(elapsed / duration, 1);
-			const easedProgress = easeOutQuart(progress);
-			const currentValue = Math.floor(
-				startValue + (targetValue - startValue) * easedProgress
-			);
-
-			element.textContent = formatNumber(currentValue);
-
-			if (progress < 1) {
-				requestAnimationFrame(update);
-			} else {
-				element.textContent = formatNumber(targetValue);
-				element.classList.add("stats-loaded");
-			}
-		}
-
-		requestAnimationFrame(update);
-	}
-
-	// Fetch share data to get websiteId and token
-	async function getShareData() {
-		const shareUrl = `${UMAMI_CONFIG.baseUrl}/api/share/${UMAMI_CONFIG.shareId}`;
-		const response = await fetch(shareUrl);
-		if (!response.ok) {
-			throw new Error(`Failed to get share data: ${response.status}`);
-		}
-		return await response.json();
-	}
-
-	async function fetchUmamiStats() {
-		if (!UMAMI_CONFIG.enable || !UMAMI_CONFIG.shareId) {
-			console.warn("Umami not configured");
-			return;
-		}
-
-		try {
-			// Step 1: Get share data (websiteId and token)
-			const shareData = await getShareData();
-			const { websiteId, token } = shareData;
-
-			// Step 2: Fetch stats using the token
-			const endAt = Date.now();
-			const startAt = 0; // All time
-			const timezone = encodeURIComponent(UMAMI_CONFIG.timezone);
-
-			const statsUrl = `${UMAMI_CONFIG.baseUrl}/api/websites/${websiteId}/stats?startAt=${startAt}&endAt=${endAt}&unit=hour&timezone=${timezone}`;
-
-			const response = await fetch(statsUrl, {
-				method: "GET",
-				headers: {
-					accept: "application/json",
-					"x-umami-share-token": token,
-				},
-			});
-
-			if (!response.ok) {
-				throw new Error(`HTTP error! status: ${response.status}`);
-			}
-
-			const data = await response.json();
-			const pageviewsEl = document.getElementById("total-pageviews");
-			const visitorsEl = document.getElementById("total-visitors");
-
-			// Animate pageviews
-			if (pageviewsEl) {
-				animateNumber(pageviewsEl, data.pageviews || 0, 1200);
-			}
-			// Animate visitors with slight delay for stagger effect
-			if (visitorsEl) {
-				setTimeout(() => {
-					animateNumber(visitorsEl, data.visitors || 0, 1000);
-				}, 150);
-			}
-		} catch (error) {
-			console.error("Failed to fetch Umami stats:", error);
-			const pageviewsEl = document.getElementById("total-pageviews");
-			const visitorsEl = document.getElementById("total-visitors");
-			if (pageviewsEl) {
-				pageviewsEl.textContent = "--";
-				pageviewsEl.classList.add("stats-loaded");
-			}
-			if (visitorsEl) {
-				visitorsEl.textContent = "--";
-				visitorsEl.classList.add("stats-loaded");
-			}
-		}
-	}
-
-	// Support Swup page transitions
-	// Note: Swup's `page:view` fires on initial load too, so we only use
-	// DOMContentLoaded as a fallback when Swup is not available
-	if (window.swup) {
-		window.swup.hooks.on("page:view", fetchUmamiStats);
-	} else {
-		document.addEventListener("DOMContentLoaded", fetchUmamiStats);
-	}
-</script>
 
 <style>
 	.stats-grid {

@@ -4,6 +4,12 @@ declare global {
 	interface Window {
 		// type from '@swup/astro' is incorrect
 		swup: AstroIntegration;
+		__umamiStatsClient?: {
+			observer: IntersectionObserver;
+			requests: Map<string, Promise<{ pageviews: number; visitors: number }>>;
+			hookedSwup?: AstroIntegration;
+			warned: boolean;
+		};
 		pagefind: {
 			search: (query: string) => Promise<{
 				results: Array<{

@@ -104,7 +104,6 @@ export type ExpressiveCodeConfig = {
 export type UmamiConfig = {
 	enable: boolean;
 	baseUrl: string;
-	shareId: string;
 	timezone: string;
 	websiteId: string;
 	scriptUrl: string;
