@@ -7,6 +7,8 @@ category: Examples
 draft: false
 ---
 
+> This article is retained as a Fuwari feature example for this site’s theme.
+
 Just copy the embed code from YouTube or other platforms, and paste it in the markdown file.
 
 ```yaml

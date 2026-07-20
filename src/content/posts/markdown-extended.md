@@ -4,10 +4,12 @@ published: 2024-05-01
 updated: 2024-11-29
 description: 'Read more about Markdown features in Fuwari'
 image: ''
-tags: [Demo, Example, Markdown, Fuwari]
+tags: [Example, Markdown, Fuwari]
 category: 'Examples'
 draft: false 
 ---
+
+> This article is retained as a Fuwari feature example for this site’s theme.
 
 ## GitHub Repository Cards
 You can add dynamic cards that link to GitHub repositories, on page load, the repository information is pulled from the GitHub API. 
