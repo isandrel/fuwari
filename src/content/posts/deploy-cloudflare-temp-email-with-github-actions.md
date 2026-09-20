@@ -29,6 +29,10 @@ The workflow favors explicit, verifiable steps:
 - deployments stop when the reviewed commit does not match the dispatched commit;
 - destructive boundaries, especially MX changes, require human confirmation.
 
+For every Cloudflare or GitHub mutation, the automated path appears first and the
+dashboard equivalent follows. Choose one mutation path; use the other only to verify
+the resulting state.
+
 :::caution[Protect existing email before you begin]
 Enabling Cloudflare Email Routing changes the domain's MX records. If the domain
 already receives mail through Google Workspace, Microsoft 365, Fastmail, or another
@@ -84,35 +88,76 @@ You need:
 - a domain that is not carrying email you need to preserve;
 - permission to create a Worker, D1 database, custom domain, and Email Routing rules.
 
+### Deployment inputs
+
+Decide these values before creating Cloudflare or GitHub resources:
+
+- `ROOT_DOMAIN`: the domain that receives mail, such as `example.com`;
+- `MAIL_WEB_DOMAIN`: the Webmail hostname, such as `mail.example.com`;
+- `WORKER_NAME`: the deployed Worker name;
+- `D1_DATABASE_NAME`: the remote database name;
+- site access and administrator passwords: two different, non-empty values.
+
+The D1 UUID is generated later. The JWT secret is generated locally immediately
+before it is uploaded, so neither value needs to be prepared manually.
+
 ### Cloudflare credentials and permissions
 
-Keep local management and GitHub Actions credentials separate. Scope every credential
-to one Cloudflare account and the target zone.
+The CLI and website paths use the same least-privilege credential plan.
 
-- **Local management:** first-time D1, Worker, DNS, and Email Routing setup.
-  Grant D1 Write, Workers product Admin, Zone Read, DNS Write, Email Routing Rules
-  Write, and Workers Routes Write.
-- **GitHub bootstrap:** create the first Worker and custom domain. Grant Workers
-  product Admin, Zone Read, and Workers Routes Write.
-- **GitHub steady state:** deploy updates with Editor on the existing Worker.
+#### Using the CLI
 
-Wrangler OAuth through `wrangler login` is preferred for interactive setup. If
-automation requires a management API token, use the permissions above and keep that
-token local. Never save it as the GitHub Actions token.
+Use separate credentials for interactive setup, the routing REST call, first CI
+deployment, and later CI deployments.
+
+<!-- markdownlint-disable MD013 -->
+
+| Credential            | Used from         | Resource scope                                       | Required access                                                                                          | Lifetime and storage                                                                                                                 |
+| --------------------- | ----------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Wrangler OAuth        | Local terminal    | Accounts and zones available to the signed-in member | OAuth scopes plus the member's Cloudflare permissions; Wrangler requests all available scopes by default | Use `--use-keyring`; run `wrangler logout` after one-time setup                                                                      |
+| Routing API token     | Local REST helper | Target account and `ROOT_DOMAIN`                     | Zone Read; Email Routing Rules Write                                                                     | Store in a password manager; load only into `CF_ROUTING_API_TOKEN`; revoke after routing read-back                                   |
+| CI bootstrap token    | GitHub Actions    | Target account and `ROOT_DOMAIN`                     | Workers product Admin; Zone Read; Workers Routes Write                                                   | Temporarily store as repository secret `CLOUDFLARE_API_TOKEN`; replace and revoke after the first successful steady-state deployment |
+| CI steady-state token | GitHub Actions    | Existing `WORKER_NAME`                               | Editor on the selected Worker                                                                            | Store as repository secret `CLOUDFLARE_API_TOKEN` until planned rotation or revocation                                               |
+
+<!-- markdownlint-enable MD013 -->
+
+Wrangler OAuth persists access and refresh credentials locally. `--use-keyring`
+encrypts them with a key from the operating-system keychain. The last three rows
+are API tokens; never reuse one token across those roles.
 
 Cloudflare's older token interface may show `Edit` where newer documentation uses
-`Write`. The capability is the same. The steady-state GitHub token does not need
-D1, DNS, or Email Routing access because those resources are managed separately.
+`Write`. The capability is the same.
+
+The later CLI phases show where to load the routing token and how to save each CI
+token as the GitHub repository secret. Wrangler OAuth remains local and is never
+copied into GitHub.
+
+#### Using the Cloudflare website UI
+
+1. Open the Cloudflare dashboard's **API Tokens** page.
+2. Select **Create Token**, then create a custom token.
+3. Add the permissions for the token type listed above.
+4. For the routing token, restrict **Zone Resources** to `ROOT_DOMAIN`.
+5. For the bootstrap token, select **Workers product → Admin** for only the
+   intended account. Add the two zone permissions for only `ROOT_DOMAIN`.
+6. After the Worker exists, create the steady-state token with
+   **Individual Workers → Editor** and select only `WORKER_NAME`. Do not choose
+   the product-level Worker scope for this token.
+7. Create each token, copy it once, and store it in a password manager.
+
+Create the routing and bootstrap tokens initially. After the Worker exists, create
+the steady-state per-Worker token, replace the GitHub repository secret, and prove
+one deployment succeeds with it. Only then revoke the bootstrap token.
 
 ### Local tools
 
-Install the reusable tools with Homebrew, then use mise to install Bun. Because
-Homebrew has no Wrangler formula, install Wrangler globally through Bun:
+Install the reusable tools with Homebrew. The formula is named
+`cloudflare-wrangler`, but it provides the `wrangler` command. Then use mise to
+install Bun:
 
 ```bash
-brew install gh jq mise bind
+brew install gh jq mise bind cloudflare-wrangler
 mise use --global bun@latest
-bun install --global wrangler
 ```
 
 - [Bun](https://bun.sh/)
@@ -137,7 +182,7 @@ Authenticate GitHub and Cloudflare:
 gh auth login
 gh auth status
 
-wrangler login
+wrangler login --use-keyring
 wrangler whoami
 ```
 
@@ -191,6 +236,14 @@ git remote add upstream \
   2>/dev/null || true
 ```
 
+#### Fork with the GitHub website
+
+1. Open the upstream repository on GitHub.
+2. Select **Fork**, choose the destination owner, and select **Create fork**.
+3. On the new fork, select **Code** and copy its HTTPS URL.
+4. Clone that URL with GitHub Desktop or your preferred Git client.
+5. Add the upstream repository as an `upstream` remote when it is absent.
+
 Inspect the exact source that will be deployed:
 
 ```bash
@@ -228,6 +281,13 @@ printf 'Cloudflare Account ID: ' >&2
 IFS= read -r CLOUDFLARE_ACCOUNT_ID
 export CLOUDFLARE_ACCOUNT_ID
 ```
+
+#### Find the Account ID in Cloudflare
+
+1. Open the Cloudflare dashboard and select the intended account.
+2. Open the account or zone **Overview** page.
+3. Find **Account ID** in the account details panel and copy it privately.
+4. Compare the account name with `wrangler whoami` before using the ID.
 
 ## Phase 2: Provision storage and configuration
 
@@ -272,6 +332,18 @@ wrangler d1 execute "$D1_DATABASE_NAME" \
   --json |
   jq
 ```
+
+#### Create D1 in the Cloudflare dashboard
+
+1. Go to **Storage & Databases → D1 SQL Database**.
+2. Select **Create Database**, enter `D1_DATABASE_NAME`, choose an optional location,
+   and select **Create**.
+3. Copy the database ID from the new database's details page.
+4. Open the database's **Console** tab.
+5. Paste `db/schema.sql` from the same reviewed repository commit and run it.
+6. Open **Tables** or rerun the table query in **Console** to verify initialization.
+
+Do not paste a schema copied from a different upstream revision.
 
 ### Generate a private bootstrap configuration
 
@@ -331,6 +403,14 @@ Do not put `JWT_SECRET`, `PASSWORDS`, or `ADMIN_PASSWORDS` in this file. Upload
 them as Worker secrets. Do not copy the file into the repository: even without
 passwords, it contains a real domain and D1 UUID.
 
+#### Understand dashboard configuration ownership
+
+After the Worker exists, the dashboard can add the `DB` binding under
+**Settings → Bindings** and the hostname under **Settings → Domains & Routes**.
+However, the next GitHub Actions deployment reconciles those settings from
+`BACKEND_TOML`. Treat the TOML secret as the source of truth and use the dashboard
+for verification or recovery, not as an independent long-term configuration.
+
 ## Phase 3: Deploy a protected Worker
 
 ### Create a short-lived bootstrap token
@@ -368,7 +448,27 @@ printf '%s' "$CF_CI_API_TOKEN" |
 unset CF_CI_API_TOKEN
 ```
 
+#### Save the bootstrap token manually
+
+1. On Cloudflare's **API Tokens** page, create the bootstrap token with the three
+   scopes listed above.
+2. On the GitHub fork, open **Settings → Secrets and variables → Actions**.
+3. Select **New repository secret**.
+4. Name it `CLOUDFLARE_API_TOKEN`, paste the token, and select **Add secret**.
+
 ### Configure GitHub Actions secrets
+
+The backend workflow reads this repository-secret contract:
+
+- `CLOUDFLARE_ACCOUNT_ID` (required): select the Cloudflare account;
+- `CLOUDFLARE_API_TOKEN` (required): authenticate the deployment;
+- `BACKEND_TOML` (required): supply the Worker configuration;
+- `USE_WORKER_ASSETS` (required here): bundle Webmail into the Worker;
+- `BACKEND_USE_MAIL_WASM_PARSER` (recommended): enable the WASM parser;
+- `DEBUG_MODE` (optional): print detailed output when set to `true`.
+
+`JWT_SECRET`, `PASSWORDS`, and `ADMIN_PASSWORDS` are Worker runtime secrets, not
+GitHub Actions secrets. Upload them later with `wrangler secret bulk`.
 
 ```bash
 printf '%s' "$CLOUDFLARE_ACCOUNT_ID" |
@@ -388,6 +488,16 @@ printf '%s' 'false' |
   gh secret set DEBUG_MODE --repo "$REPOSITORY"
 ```
 
+#### Add repository secrets in GitHub
+
+1. Open **Settings → Secrets and variables → Actions → Secrets** on the fork.
+2. Select **New repository secret** for each name in the contract above.
+3. Paste the corresponding value and select **Add secret**.
+4. For `BACKEND_TOML`, paste the complete contents of the private TOML file.
+5. Return to the secrets list and confirm that all six names are present.
+
+GitHub shows secret names and update times after saving, but never reveals the values.
+
 Keep `DEBUG_MODE=false`. A public fork's detailed Wrangler output can reveal domains,
 Worker names, bindings, D1 identifiers, and deployment IDs.
 
@@ -396,6 +506,9 @@ Verify names and timestamps without attempting to read secret values:
 ```bash
 gh secret list --repo "$REPOSITORY"
 ```
+
+The GitHub workflow installs its own Node.js and pnpm. Neither needs a separate
+manual setup step; Homebrew manages the runtime dependency of its Wrangler formula.
 
 ### Enable only the required workflow
 
@@ -407,6 +520,14 @@ gh workflow disable frontend_pagefunction_deploy.yaml --repo "$REPOSITORY"
 
 gh workflow list --repo "$REPOSITORY" --all
 ```
+
+#### Enable workflows in GitHub
+
+1. Open the fork's **Actions** tab and enable workflows if GitHub shows the fork
+   confirmation banner.
+2. Select **Deploy Backend** and choose **Enable workflow** if it is disabled.
+3. Open each unused frontend workflow's menu and choose **Disable workflow**.
+4. Keep **Upstream Sync** disabled until the initial deployment is verified.
 
 ### Define a fail-closed deployment function
 
@@ -472,6 +593,15 @@ Run the protected bootstrap deployment:
 deploy_reviewed_main
 ```
 
+#### Run the initial deployment in GitHub
+
+1. Confirm the reviewed commit is the current commit on the fork's `main` branch.
+2. Open **Actions → Deploy Backend**.
+3. Select **Run workflow**, choose `main`, and select **Run workflow** again.
+4. Open the new run and verify its commit SHA immediately.
+5. If it differs from the reviewed commit, select **Cancel workflow** and stop.
+6. Only when the SHA matches, wait for every deployment step to succeed.
+
 ### Install application secrets
 
 Use different, non-empty site and administrator passwords:
@@ -516,6 +646,18 @@ Verify that all three secret names exist:
 wrangler secret list --name "$WORKER_NAME"
 ```
 
+#### Add Worker secrets in Cloudflare
+
+1. Generate a JWT secret locally with `openssl rand -base64 48`.
+2. Go to **Workers & Pages → your Worker → Settings**.
+3. Under **Variables and Secrets**, select **Add** and choose **Secret**.
+4. Add `JWT_SECRET` with the generated value.
+5. Add `PASSWORDS` as a JSON array string containing the site password.
+6. Add `ADMIN_PASSWORDS` as a JSON array string containing the admin password.
+7. Add all three changes to one version, then select **Deploy**.
+
+Do not create these as plaintext variables.
+
 Open `https://$MAIL_WEB_DOMAIN` in a private browser window. Confirm that no password
 and an incorrect password are rejected, while the site password succeeds.
 
@@ -540,6 +682,15 @@ gh secret set BACKEND_TOML \
 deploy_reviewed_main
 ```
 
+#### Enable address creation in GitHub
+
+1. Change `ENABLE_USER_CREATE_EMAIL` from `false` to `true` in the retained private
+   `$BACKEND_TOML_PATH` file.
+2. Open **Settings → Secrets and variables → Actions → Secrets**.
+3. Select `BACKEND_TOML`, then select **Update secret**.
+4. Paste the complete revised TOML file and save the secret.
+5. Run **Deploy Backend** using the protected SHA-check procedure above.
+
 ### Rotate to a steady-state token
 
 Create a new token with `Editor` scoped only to the existing `$WORKER_NAME`. Because
@@ -561,8 +712,16 @@ deploy_reviewed_main
 unset CF_CI_API_TOKEN
 ```
 
-After that deployment succeeds, revoke the bootstrap token. Do not leave the broad
-and narrow tokens active together.
+#### Rotate the CI token manually
+
+1. On Cloudflare's **API Tokens** page, create a token with **Editor** access scoped
+   only to the existing Worker.
+2. On GitHub, open **Settings → Secrets and variables → Actions**.
+3. Select `CLOUDFLARE_API_TOKEN`, choose **Update secret**, and paste the new token.
+4. Run **Deploy Backend** using the protected SHA-check procedure above.
+5. Return to Cloudflare's API Tokens page and revoke the bootstrap token.
+
+For either path, do not leave the broad and narrow tokens active together.
 
 ## Phase 4: Route incoming email
 
@@ -608,6 +767,14 @@ export DNS_SNAPSHOT
 less "$DNS_SNAPSHOT"
 ```
 
+#### Snapshot DNS in Cloudflare
+
+1. Select the zone in Cloudflare and open **DNS → Records**.
+2. Record or export every existing MX record and mail-related TXT record, including
+   SPF values and TTLs.
+3. Save the snapshot outside the repository in a private location.
+4. Identify the provider behind each MX record before changing Email Routing.
+
 :::caution[Human confirmation: MX replacement]
 If the snapshot contains MX records, identify the service behind every record. Do
 not continue until losing that service is acceptable and its restoration procedure
@@ -622,28 +789,125 @@ wrangler email routing settings "$ROOT_DOMAIN"
 wrangler email routing dns get "$ROOT_DOMAIN"
 ```
 
+### Prepare catch-all API access
+
+Wrangler's help lists `worker` as an action type, but its catch-all validation still
+rejects Worker actions. Use Cloudflare's catch-all REST endpoint with the local
+routing API token instead.
+
+Skip this API preparation when using the dashboard path in the next section.
+
+Read the token without exposing it in command history, then resolve the target zone:
+
+```bash
+CF_ROUTING_API_TOKEN=''
+while [ -z "$CF_ROUTING_API_TOKEN" ]; do
+  printf 'Non-empty Cloudflare routing API token: ' >&2
+  IFS= read -r -s CF_ROUTING_API_TOKEN
+  printf '\n' >&2
+done
+export CF_ROUTING_API_TOKEN
+
+cloudflare_auth_header() {
+  printf 'Authorization: Bearer %s\n' "$CF_ROUTING_API_TOKEN"
+}
+
+export CF_ZONE_ID="$(
+  curl --fail --silent --show-error --get \
+    "https://api.cloudflare.com/client/v4/zones" \
+    --header @<(cloudflare_auth_header) \
+    --data-urlencode "name=$ROOT_DOMAIN" \
+    --data-urlencode "account.id=$CLOUDFLARE_ACCOUNT_ID" |
+    jq -er '
+      if .success and (.result | length == 1) then
+        .result[0].id
+      else
+        error("target zone is missing or not unique")
+      end
+    '
+)"
+```
+
+Define update and read-back helpers. The token is passed through an anonymous file
+descriptor instead of a process argument:
+
+```bash
+update_worker_catch_all() (
+  set -euo pipefail
+
+  local api_url enabled payload
+  api_url="https://api.cloudflare.com/client/v4/zones"
+  api_url+="/${CF_ZONE_ID}/email/routing/rules/catch_all"
+  enabled="${1:?enabled must be true or false}"
+  payload="$(
+    jq -cn \
+      --arg worker "$WORKER_NAME" \
+      --argjson enabled "$enabled" \
+      '{
+        actions: [{type: "worker", value: [$worker]}],
+        matchers: [{type: "all"}],
+        enabled: $enabled,
+        name: "Send catch-all to temp email Worker",
+        source: "api"
+      }'
+  )"
+
+  printf '%s' "$payload" |
+    curl --fail --silent --show-error \
+      --request PUT \
+      "$api_url" \
+      --header @<(cloudflare_auth_header) \
+      --header 'Content-Type: application/json' \
+      --data-binary @- |
+    jq -e '
+      if .success then
+        .result
+      else
+        error(.errors | map(.message) | join("; "))
+      end
+    '
+)
+
+read_worker_catch_all() (
+  local api_url="https://api.cloudflare.com/client/v4/zones"
+  api_url+="/${CF_ZONE_ID}/email/routing/rules/catch_all"
+
+  curl --fail --silent --show-error \
+    "$api_url" \
+    --header @<(cloudflare_auth_header) |
+    jq -e '
+      if .success then
+        .result
+      else
+        error(.errors | map(.message) | join("; "))
+      end
+    '
+)
+```
+
 ### Enable routing and the Worker catch-all
 
 ```bash
 wrangler email routing enable "$ROOT_DOMAIN"
-
-wrangler email routing rules update \
-  "$ROOT_DOMAIN" \
-  catch-all \
-  --name "Send catch-all to temp email Worker" \
-  --enabled true \
-  --action-type worker \
-  --action-value "$WORKER_NAME"
+update_worker_catch_all true
 ```
+
+#### Configure Email Routing in Cloudflare
+
+1. Go to **Compute → Email Service → Email Routing**.
+2. Select **Onboard Domain** and choose `ROOT_DOMAIN`.
+3. Review the MX and TXT records that Cloudflare will add, then select **Done**.
+4. Select the domain and open **Routing Rules**.
+5. Edit or enable **Catch-all rule**.
+6. Set **Action** to **Send to a Worker** and select `WORKER_NAME`.
+7. Set the rule to **Active** and select **Save**.
 
 Read everything back:
 
 ```bash
 wrangler email routing settings "$ROOT_DOMAIN"
 wrangler email routing dns get "$ROOT_DOMAIN"
-wrangler email routing rules get \
-  "$ROOT_DOMAIN" \
-  catch-all
+read_worker_catch_all
 ```
 
 ### Roll back Email Routing
@@ -651,20 +915,33 @@ wrangler email routing rules get \
 To reverse the routing change, disable the catch-all before disabling Email Routing:
 
 ```bash
-wrangler email routing rules update \
-  "$ROOT_DOMAIN" \
-  catch-all \
-  --name "Disabled temp email catch-all" \
-  --enabled false \
-  --action-type worker \
-  --action-value "$WORKER_NAME"
-
+update_worker_catch_all false
+read_worker_catch_all
 wrangler email routing disable "$ROOT_DOMAIN"
 ```
 
-Disabling Email Routing does not restore the previous provider's MX or SPF records.
-Restore them from `$DNS_SNAPSHOT` and the provider configuration saved before the
-change. Never commit the snapshot or attach it to a public issue.
+#### Roll back routing in Cloudflare
+
+For a provider migration without an intentional mail outage:
+
+1. Go to **Compute → Email Service → Email Routing** and select `ROOT_DOMAIN`.
+2. Under **Settings**, unlock the routing MX, SPF, and DKIM records.
+3. In **DNS → Records**, add the former provider's records from the private snapshot.
+4. Verify the replacement provider's required records and mail flow.
+5. Return to **Routing Rules** and disable **Catch-all rule**.
+6. Return to **Settings**, select **Disable Email Routing**, and confirm.
+7. Verify that the replacement provider's records remain and still receive mail.
+
+If the goal is to stop receiving mail entirely, skip steps 2–4, disable the catch-all,
+then disable Email Routing.
+
+Disabling Email Routing removes Cloudflare-managed routing records but does not
+restore a previous provider. Restore its records from `$DNS_SNAPSHOT` and the saved
+configuration. Never commit the snapshot or attach it to a public issue.
+
+After the routing read-back succeeds, unset and revoke `CF_ROUTING_API_TOKEN`.
+Create a new narrowly scoped token if API rollback is needed later. Dashboard
+rollback does not require this token.
 
 ## Verification
 
@@ -677,6 +954,13 @@ wrangler deployments list \
   jq
 ```
 
+#### Verify the Worker in Cloudflare
+
+1. Go to **Workers & Pages** and select `WORKER_NAME`.
+2. Open **Deployments** and confirm the latest deployment succeeded.
+3. Under **Settings → Domains & Routes**, confirm `MAIL_WEB_DOMAIN` is active.
+4. Under **Settings → Bindings**, confirm the D1 binding is named `DB`.
+
 ### Web interface
 
 ```bash
@@ -688,6 +972,12 @@ curl --fail --silent --show-error \
 
 Expect HTTP `200`, then verify that the site password is required and create a test
 address.
+
+### Administration and database state
+
+Open `https://$MAIL_WEB_DOMAIN/admin` and sign in as an administrator. Under
+**Quick Setup → Database**, confirm the schema is healthy. Reinitialize only when
+the current migration guide requires it.
 
 ### End-to-end delivery
 
@@ -710,6 +1000,14 @@ wrangler d1 execute "$D1_DATABASE_NAME" \
   --json |
   jq
 ```
+
+#### Verify delivery in Cloudflare
+
+1. Open the Worker in **Workers & Pages**, then open its live logs or observability
+   view before sending the test message.
+2. Send the test message and confirm that the Worker invocation has no exception.
+3. Open **Storage & Databases → D1 SQL Database → your database → Console**.
+4. Run the same `SELECT` query and confirm the new address and timestamp appear.
 
 The deployment is complete only when all of these are true:
 
@@ -734,6 +1032,14 @@ git log --oneline HEAD..upstream/main
 git diff --stat HEAD...upstream/main
 git diff --name-only HEAD...upstream/main -- db
 ```
+
+#### Review upstream in GitHub
+
+1. Open the fork and select **Sync fork → Compare** instead of updating immediately.
+2. Review the upstream Releases and CHANGELOG since the deployed revision.
+3. Inspect changed files, especially `.github/workflows`, `db`, and Worker config.
+4. Apply required D1 migrations before deploying code that depends on them.
+5. Merge only the reviewed update into the fork's `main` branch.
 
 Back up D1 before an upgrade. If upstream documents a schema migration, run the
 specific reviewed migration before dispatching `Deploy Backend`. Do not replay the
@@ -801,6 +1107,15 @@ trigger_first_sync() (
 trigger_first_sync
 ```
 
+#### Enable auto-sync in GitHub
+
+1. Open **Settings → Actions → General** on the fork.
+2. Under **Workflow permissions**, select **Read and write permissions**.
+3. Leave the pull-request approval option unchecked, then select **Save**.
+4. Open **Actions → Upstream Sync** and select **Enable workflow**.
+5. Select **Run workflow**, choose `main`, and start the first run manually.
+6. Wait for the sync to succeed, then verify the resulting **Deploy Backend** run.
+
 After the sync succeeds, verify the sync and the triggered backend deployment:
 
 ```bash
@@ -828,16 +1143,24 @@ The daily Cron Trigger only wakes the Worker; it does not define a retention pol
 Configure and verify cleanup in the administration interface so D1 does not grow
 without limit and test mail does not remain indefinitely.
 
+#### Configure retention manually
+
+1. Open the Webmail administration interface and configure the cleanup policy.
+2. In Cloudflare, open **Workers & Pages → your Worker → Settings**.
+3. Confirm the daily Cron Trigger is present under trigger settings.
+4. Recheck D1 usage after the first scheduled cleanup.
+
 ### Clean the local session
 
 ```bash
+wrangler logout
 unset CLOUDFLARE_ACCOUNT_ID D1_DATABASE_ID ROOT_DOMAIN MAIL_WEB_DOMAIN
 unset WORKER_NAME D1_DATABASE_NAME GITHUB_OWNER REPOSITORY
-unset DNS_SNAPSHOT
+unset DNS_SNAPSHOT CF_ROUTING_API_TOKEN CF_ZONE_ID
 ```
 
-The shell `EXIT` trap removes the temporary Worker configuration. It does not delete
-the persistent DNS snapshot required for rollback.
+`wrangler logout` invalidates OAuth and removes stored credentials. The `EXIT` trap
+removes the temporary Worker config but preserves the DNS rollback snapshot.
 
 ## Troubleshooting
 
@@ -851,6 +1174,17 @@ belongs to the target account and that the GitHub secret has no quotes or newlin
 Confirm that `USE_WORKER_ASSETS` exists, `BACKEND_TOML` contains `[assets]`, and
 the route uses `custom_domain = true`.
 
+### `Catch-all rule only supports 'forward' or 'drop' action types`
+
+Wrangler currently rejects Worker actions for catch-all rules even though its help
+lists `worker`. Use the catch-all REST helpers from Phase 4 and read the rule back.
+
+### `Cannot read properties of undefined (reading 'map')`
+
+Open `/open_api/settings` and confirm that it returns valid JSON. This error usually
+means a JSON-shaped variable is missing or malformed. Check `DOMAINS` and
+`DEFAULT_DOMAINS`, then confirm the password secrets contain JSON array strings.
+
 ### `D1_ERROR: no such table`
 
 For a new empty database, apply the schema from the exact deployed commit:
@@ -863,6 +1197,22 @@ wrangler d1 execute "$D1_DATABASE_NAME" \
 ```
 
 For an existing database, use the specific migration documented for the upgrade.
+
+### `D1_ERROR: Exceeded maximum DB size`
+
+The database can no longer store mail. Remove unneeded messages and configure cleanup.
+Confirm the Worker has a Cron Trigger, then review D1 limits before changing retention.
+
+### `Upstream Sync` cannot push
+
+Read back the repository workflow permission:
+
+```bash
+gh api "repos/${REPOSITORY}/actions/permissions/workflow"
+```
+
+`default_workflow_permissions` must be `write`. The sync workflow does not need
+permission to approve pull requests.
 
 ### Mail does not arrive
 
@@ -881,7 +1231,11 @@ Confirm that no old provider MX records remain, then inspect the Worker error ta
 - [cloudflare_temp_email upstream repository](https://github.com/dreamhunter2333/cloudflare_temp_email)
 - [Official Temp Mail documentation](https://temp-mail-docs.awsl.uk/en/)
 - [Official quick start](https://temp-mail-docs.awsl.uk/en/guide/quick-start.html)
+- [Official GitHub Actions deployment guide](https://temp-mail-docs.awsl.uk/en/guide/actions/github-action)
+- [Official GitHub Actions D1 guide](https://temp-mail-docs.awsl.uk/en/guide/actions/d1)
 - [Official GitHub Actions auto-update guide](https://temp-mail-docs.awsl.uk/en/guide/actions/auto-update)
+- [Official Worker variable reference](https://temp-mail-docs.awsl.uk/en/guide/worker-vars)
+- [Official troubleshooting FAQ](https://temp-mail-docs.awsl.uk/en/guide/common-issues)
 
 ### Cloudflare platform
 
@@ -890,14 +1244,19 @@ Confirm that no old provider MX records remain, then inspect the Worker error ta
 - [Cloudflare Workers permissions](https://developers.cloudflare.com/workers/authorization/workers/)
 - [Cloudflare API token permissions](https://developers.cloudflare.com/fundamentals/api/reference/permissions/)
 - [Cloudflare Email Routing API](https://developers.cloudflare.com/api/resources/email_routing/)
+- [Cloudflare catch-all update API](https://developers.cloudflare.com/api/resources/email_routing/subresources/rules/subresources/catch_alls/methods/update/)
+- [Cloudflare Email Service domain configuration](https://developers.cloudflare.com/email-service/configuration/domains/)
 - [Cloudflare Email Routing rules](https://developers.cloudflare.com/email-service/configuration/email-routing-addresses/)
 
 ### GitHub Actions
 
 - [GitHub CLI: `gh secret set`](https://cli.github.com/manual/gh_secret_set)
 - [GitHub CLI: `gh workflow`](https://cli.github.com/manual/gh_workflow)
+- [GitHub Actions workflow cancellation](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/cancel-a-workflow-run)
 
 ### Tooling
 
+- [Homebrew `cloudflare-wrangler` formula](https://formulae.brew.sh/formula/cloudflare-wrangler)
 - [Wrangler installation](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
+- [Wrangler login, keyring, and logout](https://developers.cloudflare.com/workers/wrangler/commands/general/)
 - [mise Bun support](https://mise.jdx.dev/lang/bun.html)
