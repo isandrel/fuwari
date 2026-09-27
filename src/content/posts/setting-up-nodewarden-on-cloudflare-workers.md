@@ -7,7 +7,7 @@ description:
 image: ""
 tags: [NodeWarden, Cloudflare Workers, D1, R2, Self-Hosting]
 category: "Development"
-draft: true
+draft: false
 lang: "en"
 ---
 
