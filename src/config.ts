@@ -11,6 +11,8 @@ import { LinkPreset } from "./types/config";
 export const siteConfig: SiteConfig = {
 	title: "Isandrel’s Blog",
 	subtitle: "Software, tools, and systems.",
+	description:
+		"Practical guides to Cloudflare deployment, developer tools, automation, and software troubleshooting.",
 	lang: "en", // Language code, e.g. 'en', 'zh_CN', 'ja', etc.
 	themeColor: {
 		hue: 250, // Default hue for the theme color, from 0 to 360. e.g. red: 0, teal: 200, cyan: 250, pink: 345
