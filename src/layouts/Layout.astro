@@ -63,6 +63,10 @@ if (!lang) {
 }
 const siteLang = lang.replace("_", "-");
 
+// Query parameters filter the archive or track visits; they do not create new pages.
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site).href;
+const pageDescription = description || siteConfig.description || pageTitle;
+
 const bannerOffsetByPosition = {
 	top: `${BANNER_HEIGHT_EXTEND}vh`,
 	center: `${BANNER_HEIGHT_EXTEND / 2}vh`,
@@ -79,15 +83,17 @@ const bannerOffset =
 	<head>
 
 		<title>{pageTitle}</title>
+		<link rel="canonical" href={canonicalUrl} />
+		<link rel="sitemap" href={new URL("sitemap-index.xml", Astro.site).href} />
 
 		<meta charset="UTF-8" />
-		<meta name="description" content={description || pageTitle}>
+		<meta name="description" content={pageDescription}>
 		<meta name="author" content={profileConfig.name}>
 
 		<meta property="og:site_name" content={siteConfig.title}>
-		<meta property="og:url" content={Astro.url}>
+		<meta property="og:url" content={canonicalUrl}>
 		<meta property="og:title" content={pageTitle}>
-		<meta property="og:description" content={description || pageTitle}>
+		<meta property="og:description" content={pageDescription}>
 		{setOGTypeArticle ? (
         <meta property="og:type" content="article" />
         ) : (
@@ -95,9 +101,9 @@ const bannerOffset =
         )}
 
 		<meta name="twitter:card" content="summary_large_image">
-		<meta property="twitter:url" content={Astro.url}>
+		<meta property="twitter:url" content={canonicalUrl}>
 		<meta name="twitter:title" content={pageTitle}>
-		<meta name="twitter:description" content={description || pageTitle}>
+		<meta name="twitter:description" content={pageDescription}>
 
 		<meta name="viewport" content="width=device-width" />
 		<meta name="generator" content={Astro.generator} />
@@ -150,7 +156,7 @@ const bannerOffset =
 				src={umamiConfig.scriptUrl}
 				data-website-id={umamiConfig.websiteId}
 				data-host-url={umamiConfig.baseUrl}
-				data-domains="isandrel.com"
+				data-domains={Astro.site?.hostname}
 			></script>
 		)}
 
