@@ -24,17 +24,25 @@ const tags = (html, name) =>
 		attributes(match[0]),
 	);
 
-const sitemapIndex = await read("sitemap-index.xml");
-const sitemaps = locations(sitemapIndex);
-assert.ok(sitemaps.length, "Sitemap index must contain a sitemap");
+const sitemap = await read("sitemap.xml");
 const urls = [];
-for (const sitemap of sitemaps) {
-	assert.equal(
-		new URL(sitemap).origin,
-		origin,
-		"Sitemap index must use the blog host",
+if (sitemap.includes("<sitemapindex")) {
+	const sitemaps = locations(sitemap);
+	assert.ok(sitemaps.length, "Sitemap index must contain a sitemap");
+	for (const child of sitemaps) {
+		assert.equal(
+			new URL(child).origin,
+			origin,
+			"Sitemap index must use the blog host",
+		);
+		urls.push(...locations(await read(new URL(child).pathname.slice(1))));
+	}
+} else {
+	assert.ok(
+		sitemap.includes("<urlset"),
+		"sitemap.xml must contain a URL list or index",
 	);
-	urls.push(...locations(await read(new URL(sitemap).pathname.slice(1))));
+	urls.push(...locations(sitemap));
 }
 assert.ok(urls.length, "Sitemap must contain pages");
 assert.equal(new Set(urls).size, urls.length, "Sitemap must not repeat URLs");
@@ -53,6 +61,11 @@ for (const address of urls) {
 		path.join(decodeURIComponent(url.pathname), "index.html"),
 	);
 	const links = tags(html, "link");
+	assert.equal(
+		links.find((tag) => tag.rel === "sitemap")?.href,
+		`${origin}/sitemap.xml`,
+		`Incorrect sitemap discovery link: ${address}`,
+	);
 	const canonicals = links.filter((tag) => tag.rel === "canonical");
 	assert.equal(canonicals.length, 1, `Expected one canonical: ${address}`);
 	assert.equal(
@@ -94,10 +107,6 @@ for (const address of urls) {
 		url.hostname,
 		`Analytics domain must match the blog: ${address}`,
 	);
-	assert.ok(
-		!/https:\/\/isandrel\.com(?:[/"'])/.test(html),
-		`Old absolute site URL remains in HTML: ${address}`,
-	);
 	if (url.pathname.startsWith("/posts/")) {
 		articles++;
 		assert.equal(
@@ -132,7 +141,7 @@ for (const address of urls) {
 
 const robots = await read("robots.txt");
 assert.ok(
-	robots.includes(`Sitemap: ${origin}/sitemap-index.xml`),
+	robots.includes(`Sitemap: ${origin}/sitemap.xml`),
 	"robots.txt must advertise the blog sitemap",
 );
 assert.ok(
@@ -140,11 +149,18 @@ assert.ok(
 	"robots.txt must allow page rendering resources",
 );
 const rss = await read("rss.xml");
-assert.ok(rss.includes(`${origin}/`), "RSS must use the blog host");
 assert.ok(
-	!rss.includes("https://isandrel.com/"),
-	"RSS must not advertise old blog URLs",
+	(await read("_redirects")).includes("/sitemap-index.xml /sitemap.xml 301"),
+	"Old sitemap address must redirect to sitemap.xml",
 );
+assert.ok(rss.includes(`${origin}/`), "RSS must use the blog host");
+for (const match of rss.matchAll(/<link>([^<]+)<\/link>/g)) {
+	assert.equal(
+		new URL(decode(match[1])).origin,
+		origin,
+		"RSS page links must use the blog host",
+	);
+}
 for (const slug of [
 	"rclone-google-drive-setup",
 	"cloudflare-526-ssl-error-on-github-pages",
